@@ -30,7 +30,7 @@ namespace SlackTrayHours
                 if (path.Length < 2 || !path.EndsWith("\"", StringComparison.Ordinal)) return false;
                 path = path.Substring(1, path.Length - 2);
             }
-            if (path.IndexOfAny(new char[] { '\0', '\r', '\r\n', '"' }) >= 0) return false;
+            if (path.IndexOfAny(new char[] { '\0', '\r', '\n', '"' }) >= 0) return false;
             int separator = Math.Max(path.LastIndexOf('\\'), path.LastIndexOf('/'));
             return String.Equals(path.Substring(separator + 1), "slack.exe", StringComparison.OrdinalIgnoreCase);
         }
@@ -570,3 +570,4 @@ namespace SlackTrayHours
         }
     }
 }
+

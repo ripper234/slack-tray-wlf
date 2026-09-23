@@ -8,7 +8,7 @@ $installDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationDat
 $executable = Join-Path $installDirectory 'SlackTrayHours.exe'
 $taskName = "SlackTrayHours-$sid"
 $taskSource = 'SlackTrayHours.v1'
-$managedFiles = @('installation.json', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'SlackTrayHours.exe')
+$managedFiles = @('installation.json', 'config.json', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'SlackTrayHours.exe')
 $mutex = $null
 $lockHeld = $false
 $stage = $null
@@ -50,6 +50,61 @@ function Invoke-App([string]$Path, [string]$Arguments) {
     if ($process.ExitCode -ne 0) { throw "Slack Tray Hours $Arguments failed (exit code $($process.ExitCode)). See $installDirectory\runtime.log." }
 }
 
+function Convert-TimeToMinutes([string]$Value) {
+    if ($Value -cnotmatch '^([01][0-9]|2[0-3]):([0-5][0-9])$') {
+        throw "Time '$Value' must be in 24-hour HH:mm format (for example, 08:00 or 18:00)."
+    }
+    return ([int]$Value.Substring(0, 2) * 60) + [int]$Value.Substring(3, 2)
+}
+
+function Get-InstalledSchedule([string]$Path) {
+    $default = [ordered]@{ workWeekStart = 'Sunday'; startTime = '08:00'; endTime = '18:00' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $default }
+    try {
+        $config = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        $keys = @($config.PSObject.Properties | ForEach-Object { $_.Name })
+        $required = @('schemaVersion', 'workWeekStart', 'startTime', 'endTime')
+        if ($keys.Count -ne $required.Count -or @($required | Where-Object { $keys -cnotcontains $_ }).Count -ne 0) {
+            throw 'Expected exactly schemaVersion, workWeekStart, startTime, and endTime.'
+        }
+        if (($config.schemaVersion -isnot [int] -and $config.schemaVersion -isnot [long]) -or $config.schemaVersion -ne 1) {
+            throw 'schemaVersion must be the number 1.'
+        }
+        if ($config.workWeekStart -isnot [string] -or @('Sunday', 'Monday') -cnotcontains $config.workWeekStart) {
+            throw 'workWeekStart must be Sunday or Monday.'
+        }
+        if ($config.startTime -isnot [string] -or $config.endTime -isnot [string]) {
+            throw 'startTime and endTime must be text in 24-hour HH:mm format.'
+        }
+        $startMinutes = Convert-TimeToMinutes $config.startTime
+        $endMinutes = Convert-TimeToMinutes $config.endTime
+        if ($startMinutes -ge $endMinutes) { throw 'The end time must be later than the start time on the same day.' }
+        return [ordered]@{ workWeekStart = $config.workWeekStart; startTime = $config.startTime; endTime = $config.endTime }
+    }
+    catch {
+        throw "The installed schedule at $Path is invalid: $($_.Exception.Message) Repair or remove that file, then rerun Install.cmd."
+    }
+}
+
+function Read-WeekStart([string]$Default) {
+    while ($true) {
+        $answer = (Read-Host "First workday (Sunday or Monday) [$Default]").Trim()
+        if ($answer -eq '') { return $Default }
+        if ($answer -ieq 'Sunday') { return 'Sunday' }
+        if ($answer -ieq 'Monday') { return 'Monday' }
+        Write-Host 'Please enter Sunday or Monday.' -ForegroundColor Yellow
+    }
+}
+
+function Read-WorkTime([string]$Label, [string]$Default) {
+    while ($true) {
+        $answer = (Read-Host "$Label (24-hour HH:mm) [$Default]").Trim()
+        if ($answer -eq '') { return $Default }
+        try { $null = Convert-TimeToMinutes $answer; return $answer }
+        catch { Write-Host $_.Exception.Message -ForegroundColor Yellow }
+    }
+}
+
 try {
     $build = [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber).CurrentBuildNumber
     if ($build -lt 22621) { throw 'Slack Tray Hours requires Windows 11 22H2 or later (build 22621+). Windows 10 is not supported.' }
@@ -70,6 +125,18 @@ try {
         $hadPreviousInstallation = $true
     }
 
+    $currentSchedule = Get-InstalledSchedule (Join-Path $installDirectory 'config.json')
+    Write-Host 'Slack Tray Hours: choose your five-day work week in your Windows local time.'
+    Write-Host 'Press Enter to keep the value in brackets.'
+    $workWeekStart = Read-WeekStart $currentSchedule.workWeekStart
+    while ($true) {
+        $startTime = Read-WorkTime 'Start time' $currentSchedule.startTime
+        $endTime = Read-WorkTime 'End time' $currentSchedule.endTime
+        if ((Convert-TimeToMinutes $startTime) -lt (Convert-TimeToMinutes $endTime)) { break }
+        Write-Host 'End time must be later than start time on the same day. Please enter both times again.' -ForegroundColor Yellow
+    }
+    $workWeekEnd = if ($workWeekStart -eq 'Sunday') { 'Thursday' } else { 'Friday' }
+
     $scheduler = New-Object -ComObject 'Schedule.Service'
     $scheduler.Connect()
     $taskFolder = $scheduler.GetFolder('\')
@@ -88,6 +155,8 @@ try {
     }
     [ordered]@{ appId = $taskSource; schemaVersion = 1; userSid = $sid; taskName = $taskName; installPath = $installDirectory } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'installation.json') -Encoding UTF8
+    $scheduleJson = [ordered]@{ schemaVersion = 1; workWeekStart = $workWeekStart; startTime = $startTime; endTime = $endTime } | ConvertTo-Json
+    [IO.File]::WriteAllText((Join-Path $stage 'config.json'), $scheduleJson + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
     $previousDirectory = Join-Path $stage 'previous'
     $null = New-Item -ItemType Directory -Path $previousDirectory
     foreach ($file in $managedFiles) {
@@ -109,7 +178,7 @@ try {
     $definition = $scheduler.NewTask(0)
     $definition.RegistrationInfo.Author = $sid
     $definition.RegistrationInfo.Source = $taskSource
-    $definition.RegistrationInfo.Description = 'Moves only Slack notification-area icons on the fixed Sun-Thu 09:00-18:00 local-time schedule. Does not start Slack.'
+    $definition.RegistrationInfo.Description = 'Moves only Slack notification-area icons according to the five-day schedule in config.json. Does not start Slack.'
     $definition.Principal.UserId = $sid
     $definition.Principal.LogonType = 3 # TASK_LOGON_INTERACTIVE_TOKEN, no stored password
     $definition.Principal.RunLevel = 0 # TASK_RUNLEVEL_LUA, current user only
@@ -157,7 +226,7 @@ try {
     # A live process alone cannot prove that registry reconciliation succeeds.
     Invoke-App $executable '--once'
     $succeeded = $true
-    Write-Host 'Installed and running. Slack is visible Sun-Thu, 09:00 to 18:00, in your Windows local time; hidden at all other times.'
+    Write-Host "Installed and running. Slack is visible $workWeekStart-$workWeekEnd, $startTime to $endTime, in your Windows local time; hidden at all other times."
     Write-Host 'Starts again when you sign in. The task checks every five minutes that the background helper is still running.'
     Write-Host "Status:    $installDirectory\Status.cmd"
     Write-Host "Uninstall: $installDirectory\Uninstall.cmd"

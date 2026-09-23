@@ -1,5 +1,6 @@
-// Slack Tray Hours 0.1.0. Released under the Unlicense. Compatible with C# 5 / .NET Framework 4.
+// Slack Tray Hours 0.2.0. Released under the Unlicense. Compatible with C# 5 / .NET Framework 4.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -11,14 +12,147 @@ using Microsoft.Win32;
 
 namespace SlackTrayHours
 {
+    public sealed class WorkSchedule
+    {
+        public static readonly WorkSchedule Default = new WorkSchedule(DayOfWeek.Sunday,
+            TimeSpan.FromHours(8), TimeSpan.FromHours(18));
+
+        public readonly DayOfWeek WorkWeekStart;
+        public readonly TimeSpan StartTime;
+        public readonly TimeSpan EndTime;
+
+        public WorkSchedule(DayOfWeek workWeekStart, TimeSpan startTime, TimeSpan endTime)
+        {
+            if (workWeekStart != DayOfWeek.Sunday && workWeekStart != DayOfWeek.Monday)
+                throw new ArgumentOutOfRangeException("workWeekStart");
+            if (startTime < TimeSpan.Zero || startTime >= TimeSpan.FromDays(1) ||
+                endTime <= startTime || endTime >= TimeSpan.FromDays(1) ||
+                startTime.Ticks % TimeSpan.TicksPerMinute != 0 ||
+                endTime.Ticks % TimeSpan.TicksPerMinute != 0)
+                throw new ArgumentOutOfRangeException("startTime", "Choose times within the same day, in whole minutes, with start before end.");
+            WorkWeekStart = workWeekStart;
+            StartTime = startTime;
+            EndTime = endTime;
+        }
+
+        public string Describe()
+        {
+            return WorkWeekStart.ToString() + "-" +
+                (WorkWeekStart == DayOfWeek.Sunday ? "Thursday" : "Friday") + " " +
+                StartTime.ToString(@"hh\:mm", CultureInfo.InvariantCulture) + "-" +
+                EndTime.ToString(@"hh\:mm", CultureInfo.InvariantCulture) + ", local Windows time";
+        }
+
+        // A small, strict parser avoids a runtime dependency beyond the built-in .NET Framework.
+        // Only the four documented fields are accepted; an invalid file must never enable a default schedule.
+        public static bool TryParseConfig(string json, out WorkSchedule schedule)
+        {
+            schedule = null;
+            if (json == null) return false;
+            Dictionary<string, string> values = new Dictionary<string, string>(StringComparer.Ordinal);
+            int position = 0;
+            SkipWhitespace(json, ref position);
+            if (!Take(json, ref position, '{')) return false;
+            while (true)
+            {
+                SkipWhitespace(json, ref position);
+                if (Take(json, ref position, '}')) break;
+                string key;
+                if (!ReadPlainString(json, ref position, out key) || values.ContainsKey(key)) return false;
+                SkipWhitespace(json, ref position);
+                if (!Take(json, ref position, ':')) return false;
+                SkipWhitespace(json, ref position);
+                string value;
+                if (key == "schemaVersion")
+                {
+                    // The schema is deliberately numeric rather than a quoted string.
+                    if (!Take(json, ref position, '1')) return false;
+                    value = "1";
+                }
+                else if (key == "workWeekStart" || key == "startTime" || key == "endTime")
+                {
+                    if (!ReadPlainString(json, ref position, out value)) return false;
+                }
+                else return false;
+                values.Add(key, value);
+                SkipWhitespace(json, ref position);
+                if (Take(json, ref position, '}')) break;
+                if (!Take(json, ref position, ',')) return false;
+                SkipWhitespace(json, ref position);
+                if (position < json.Length && json[position] == '}') return false;
+            }
+            SkipWhitespace(json, ref position);
+            if (position != json.Length || values.Count != 4 || !values.ContainsKey("schemaVersion") ||
+                !values.ContainsKey("workWeekStart") || !values.ContainsKey("startTime") ||
+                !values.ContainsKey("endTime")) return false;
+            DayOfWeek first;
+            if (values["workWeekStart"] == "Sunday") first = DayOfWeek.Sunday;
+            else if (values["workWeekStart"] == "Monday") first = DayOfWeek.Monday;
+            else return false;
+            TimeSpan start, end;
+            if (!ReadTime(values["startTime"], out start) || !ReadTime(values["endTime"], out end) ||
+                start >= end) return false;
+            schedule = new WorkSchedule(first, start, end);
+            return true;
+        }
+
+        private static bool ReadTime(string value, out TimeSpan time)
+        {
+            time = TimeSpan.Zero;
+            if (value.Length != 5 || value[2] != ':' ||
+                value[0] < '0' || value[0] > '9' || value[1] < '0' || value[1] > '9' ||
+                value[3] < '0' || value[3] > '9' || value[4] < '0' || value[4] > '9') return false;
+            int hours = (value[0] - '0') * 10 + value[1] - '0';
+            int minutes = (value[3] - '0') * 10 + value[4] - '0';
+            if (hours > 23 || minutes > 59) return false;
+            time = new TimeSpan(hours, minutes, 0);
+            return true;
+        }
+
+        private static bool ReadPlainString(string source, ref int position, out string value)
+        {
+            value = null;
+            if (!Take(source, ref position, '"')) return false;
+            int begin = position;
+            while (position < source.Length && source[position] != '"')
+            {
+                // Escapes are unnecessary for the ASCII keys and values in this schema.
+                if (source[position] == '\\' || source[position] < ' ') return false;
+                position++;
+            }
+            if (position >= source.Length) return false;
+            value = source.Substring(begin, position - begin);
+            position++;
+            return true;
+        }
+
+        private static bool Take(string source, ref int position, char expected)
+        {
+            if (position >= source.Length || source[position] != expected) return false;
+            position++;
+            return true;
+        }
+
+        private static void SkipWhitespace(string source, ref int position)
+        {
+            while (position < source.Length && (source[position] == ' ' || source[position] == '\t' ||
+                source[position] == '\r' || source[position] == '\n')) position++;
+        }
+    }
+
     public static class Policy
     {
         public static bool ShouldShow(DateTime localTime)
         {
-            return localTime.DayOfWeek != DayOfWeek.Friday &&
-                   localTime.DayOfWeek != DayOfWeek.Saturday &&
-                   localTime.TimeOfDay >= TimeSpan.FromHours(9) &&
-                   localTime.TimeOfDay < TimeSpan.FromHours(18);
+            return ShouldShow(localTime, WorkSchedule.Default);
+        }
+
+        public static bool ShouldShow(DateTime localTime, WorkSchedule schedule)
+        {
+            if (schedule == null) throw new ArgumentNullException("schedule");
+            int day = ((int)localTime.DayOfWeek - (int)schedule.WorkWeekStart + 7) % 7;
+            return day < 5 && localTime.TimeOfDay >= schedule.StartTime &&
+                localTime.TimeOfDay < schedule.EndTime;
         }
 
         public static bool IsSlackExecutablePath(string executablePath)
@@ -277,7 +411,7 @@ namespace SlackTrayHours
 
     public static class Program
     {
-        public const string Version = "0.1.0";
+        public const string Version = "0.2.0";
         private const string IconsPath = @"Control Panel\NotifyIconSettings";
         private const string BackupPath = @"Software\SlackTrayHours\Backup";
         private static string lastLogState;
@@ -343,8 +477,15 @@ namespace SlackTrayHours
 
         private static int ReconcileOnce()
         {
+            WorkSchedule schedule;
+            string source;
+            if (!TryLoadSchedule(out schedule, out source))
+            {
+                LogState("Schedule configuration is invalid or unreadable; no icon changes.");
+                return 1;
+            }
             bool running = SlackRunningInCurrentSession();
-            bool show = Policy.ShouldShow(DateTime.Now);
+            bool show = Policy.ShouldShow(DateTime.Now, schedule);
             if (!running)
             {
                 LogState("Slack is not running in this session; no icon changes.");
@@ -464,6 +605,42 @@ namespace SlackTrayHours
             return found;
         }
 
+        private static bool TryLoadSchedule(out WorkSchedule schedule, out string source)
+        {
+            schedule = null;
+            source = "config.json";
+            try
+            {
+                string configPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "SlackTrayHours", "config.json");
+                try
+                {
+                    if ((File.GetAttributes(configPath) & FileAttributes.Directory) != 0) return false;
+                }
+                catch (FileNotFoundException)
+                {
+                    schedule = WorkSchedule.Default;
+                    source = "default (no config.json)";
+                    return true;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    schedule = WorkSchedule.Default;
+                    source = "default (no config.json)";
+                    return true;
+                }
+                string contents = File.ReadAllText(configPath, new UTF8Encoding(false, true));
+                return WorkSchedule.TryParseConfig(contents, out schedule);
+            }
+            catch (Exception error)
+            {
+                if (error is OutOfMemoryException || error is StackOverflowException ||
+                    error is ThreadAbortException) throw;
+                return false;
+            }
+        }
+
         private static string GetStatus()
         {
             int build;
@@ -471,8 +648,19 @@ namespace SlackTrayHours
             StringBuilder result = new StringBuilder();
             result.AppendLine("Slack Tray Hours " + Version);
             result.AppendLine("Local time: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
-            result.AppendLine("Schedule: Sunday-Thursday 09:00-18:00, local Windows time");
-            result.AppendLine("Desired icon state: " + (Policy.ShouldShow(DateTime.Now) ? "shown" : "hidden"));
+            WorkSchedule schedule;
+            string source;
+            if (TryLoadSchedule(out schedule, out source))
+            {
+                result.AppendLine("Schedule: " + schedule.Describe() + " (" + source + ")");
+                result.AppendLine("Desired icon state: " +
+                    (Policy.ShouldShow(DateTime.Now, schedule) ? "shown" : "hidden"));
+            }
+            else
+            {
+                result.AppendLine("Schedule: invalid or unreadable config.json; icon changes paused");
+                result.AppendLine("Desired icon state: unavailable");
+            }
             result.AppendLine("Supported Windows build: " + (supported ? "yes" : "no") + " (" + build + ")");
             result.AppendLine("Slack running in this session: " + (SlackRunningInCurrentSession() ? "yes" : "no"));
             bool workerRunning = false;
@@ -570,4 +758,3 @@ namespace SlackTrayHours
         }
     }
 }
-

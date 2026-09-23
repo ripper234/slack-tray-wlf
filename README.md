@@ -1,13 +1,10 @@
 # Slack Tray Hours
 
-A tiny Windows background app that gives Slack's **system tray icon beside the clock** office hours.
+A tiny Windows background app that gives Slack's **system tray icon beside the clock** office hours. Slack can respect your notification schedule while its blue or red badge is still visible. This utility moves that icon into the hidden-icons menu outside your work hours.
 
-| Day | 09:00 to 17:59 | 18:00 to 08:59 |
-| --- | --- | --- |
-| Sunday through Thursday | Visible | Hidden in the overflow menu |
-| Friday and Saturday | Hidden | Hidden |
+At installation, choose exactly three things: a **Sunday or Monday** start to your five-day workweek, a **daily start time**, and a **daily end time**. The defaults are **Sunday through Thursday, 08:00–18:00**. For a Monday start, the workdays are Monday through Friday. The icon is visible during those hours and hidden in the overflow menu at every other time.
 
-The schedule is fixed. It uses your computer's local time, including its time zone and daylight-saving changes. At 18:00 the icon is hidden; at 09:00 on a workday it is shown. Changes normally apply within five seconds while Windows is awake.
+The same hours apply to all five workdays. Enter 24-hour times such as `08:00` and `18:00`; the start must be earlier than the end on the same day. The end time is when the icon becomes hidden. The app uses your computer's local time, including time-zone and daylight-saving changes. Changes normally apply within five seconds while Windows is awake.
 
 **Requires Windows 11 22H2 or newer with the standard Windows taskbar. Windows 10 is not supported.**
 
@@ -15,7 +12,8 @@ The schedule is fixed. It uses your computer's local time, including its time zo
 
 1. Download this project's ZIP and choose **Extract All**.
 2. Open the extracted folder and double-click **`Install.cmd`** as your normal Windows user.
-3. Wait for the installation success message. Done. No reboot or administrator password is needed.
+3. Answer the three short questions. Press **Enter** to accept each suggested value.
+4. Wait for the installation success message. Done. No reboot or administrator password is needed.
 
 The installer builds a small executable using the C# compiler already included with Windows. No SDK, extra runtime, package manager, Slack credentials, or internet connection is needed during installation or operation. You can delete the extracted download after installation.
 
@@ -37,20 +35,20 @@ Double-click **`Status.cmd`** in the download, or run `%LOCALAPPDATA%\SlackTrayH
 
 Double-click **`Uninstall.cmd`**, or run `%LOCALAPPDATA%\SlackTrayHours\Uninstall.cmd`. The uninstaller stops automatic enforcement and restores each icon's original setting where it can safely identify the same entry. It preserves a later value that differs from the last value written by this app. If restoration fails, it keeps the recovery files and reports the error.
 
-Run `Install.cmd` from a newer download to update. Existing original-setting backups are retained.
+Run `Install.cmd` again to change those three settings or install a newer version. It offers your current settings as the defaults. Existing original-setting backups are retained.
 
 ## How it works
 
 The app checks `HKCU\Control Panel\NotifyIconSettings` every five seconds. It matches only an `ExecutablePath` whose filename is exactly `slack.exe`, case-insensitively, and changes only that entry's `IsPromoted` DWORD: `1` means visible, `0` means overflow. It writes only when needed. Windows can retain old Slack entries, so all matching registered entries may be updated while Slack is running; no new tray entry is created.
 
-Before its first change to an entry, it saves the original value and executable identity under `HKCU\Software\SlackTrayHours\Backup`. The executable, supporting scripts, and bounded local logs live in `%LOCALAPPDATA%\SlackTrayHours`. The scheduled task is named `SlackTrayHours-<your Windows SID>` and runs only with your existing interactive user token, at limited privilege. No password is stored.
+Before its first change to an entry, it saves the original value and executable identity under `HKCU\Software\SlackTrayHours\Backup`. The executable, your three schedule settings, supporting scripts, and bounded local logs live in `%LOCALAPPDATA%\SlackTrayHours`. The scheduled task is named `SlackTrayHours-<your Windows SID>` and runs only with your existing interactive user token, at limited privilege. No password is stored.
 
 There is no network code, telemetry, auto-update, Slack API integration, Explorer restart, process injection, or screenshot monitoring. The installer uses a process-scoped PowerShell execution-policy flag; it does not permanently change PowerShell policy.
 
 ## Compatibility and limitations
 
 - **The Windows registry interface is undocumented.** It is used by existing Windows 11 tray utilities, but a future Windows update could change it. This project checks the Windows build and tolerates entries that appear late or disappear. It never falls back to restarting Explorer.
-- This initial release has **not yet been visually tested on a real Windows desktop**. The test suite exercises the schedule and registry behavior separately from Explorer. Complete the [desktop acceptance checklist](docs/TESTING.md) on your machine before treating the release as verified there.
+- This release has **not yet been visually tested on a real Windows desktop**. The test suite exercises the schedule and registry behavior separately from Explorer. Complete the [desktop acceptance checklist](docs/TESTING.md) on your machine before treating the release as verified there.
 - Custom taskbars such as ExplorerPatcher or StartAllBack are outside the supported scope.
 - Keep Windows' hidden-icon menu enabled if you want access to hidden Slack through the overflow arrow.
 - Multiple simultaneous sessions for the **same** Windows account are outside scope. One background instance monitors the session in which it started; tray preferences are shared by that account.

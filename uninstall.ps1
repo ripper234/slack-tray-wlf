@@ -52,7 +52,7 @@ try {
     }
     # Only remove the task and program after all original preferences are restored.
     if ($null -ne $task) { $taskFolder.DeleteTask($taskName, 0) }
-    foreach ($file in @('SlackTrayHours.exe', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'installation.json', 'runtime.log', 'runtime.log.1', 'status.txt')) {
+    foreach ($file in @('SlackTrayHours.exe', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'installation.json', 'config.json', 'runtime.log', 'runtime.log.1', 'status.txt')) {
         $path = Join-Path $installDirectory $file
         if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
     }

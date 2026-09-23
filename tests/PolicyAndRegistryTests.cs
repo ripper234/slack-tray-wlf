@@ -22,6 +22,8 @@ namespace SlackTrayHours.Tests
             }
             Run("every minute of the weekly schedule", WeeklySchedule);
             Run("exact opening and closing boundaries", ScheduleBoundaries);
+            Run("Monday-first week and custom hours", CustomSchedule);
+            Run("strict schedule configuration", ScheduleConfiguration);
             Run("Slack executable matching", ExecutableMatching);
             if (policyOnly)
             {
@@ -90,7 +92,7 @@ namespace SlackTrayHours.Tests
                 for (int minute = 0; minute < 1440; minute++)
                 {
                     DateTime local = sunday.AddDays(day).AddMinutes(minute);
-                    bool expected = day < 5 && minute >= 540 && minute < 1080;
+                    bool expected = day < 5 && minute >= 480 && minute < 1080;
                     Equal(expected, Policy.ShouldShow(local), local.ToString("O"));
                 }
         }
@@ -100,7 +102,7 @@ namespace SlackTrayHours.Tests
             DateTime sunday = new DateTime(2026, 9, 20);
             for (int day = 0; day < 7; day++)
             {
-                DateTime open = sunday.AddDays(day).AddHours(9);
+                DateTime open = sunday.AddDays(day).AddHours(8);
                 DateTime close = sunday.AddDays(day).AddHours(18);
                 Equal(false, Policy.ShouldShow(open.AddTicks(-1)), "tick before opening");
                 Equal(day < 5, Policy.ShouldShow(open), "opening");
@@ -111,6 +113,55 @@ namespace SlackTrayHours.Tests
             // Calls need no transition history: resume and clock changes use current time.
             Equal(false, Policy.ShouldShow(sunday.AddDays(5).AddHours(12)), "Friday after resume");
             Equal(true, Policy.ShouldShow(sunday.AddHours(10)), "Sunday after clock change");
+        }
+
+        private static void CustomSchedule()
+        {
+            DateTime sunday = new DateTime(2026, 9, 20);
+            WorkSchedule monday = new WorkSchedule(DayOfWeek.Monday,
+                new TimeSpan(8, 30, 0), new TimeSpan(17, 15, 0));
+            for (int day = 0; day < 7; day++)
+                for (int minute = 0; minute < 1440; minute++)
+                {
+                    DateTime local = sunday.AddDays(day).AddMinutes(minute);
+                    bool expected = day >= 1 && day <= 5 && minute >= 510 && minute < 1035;
+                    Equal(expected, Policy.ShouldShow(local, monday), local.ToString("O"));
+                }
+            DateTime mondayOpen = sunday.AddDays(1).AddHours(8).AddMinutes(30);
+            DateTime fridayClose = sunday.AddDays(5).AddHours(17).AddMinutes(15);
+            Equal(false, Policy.ShouldShow(mondayOpen.AddTicks(-1), monday), "before Monday start");
+            Equal(true, Policy.ShouldShow(mondayOpen, monday), "Monday start");
+            Equal(true, Policy.ShouldShow(fridayClose.AddTicks(-1), monday), "last Friday tick");
+            Equal(false, Policy.ShouldShow(fridayClose, monday), "Friday close");
+            Equal(false, Policy.ShouldShow(sunday.AddHours(12), monday), "Sunday weekend");
+            Equal(false, Policy.ShouldShow(sunday.AddDays(6).AddHours(12), monday), "Saturday weekend");
+        }
+
+        private static void ScheduleConfiguration()
+        {
+            const string sunday = "{\"schemaVersion\":1,\"workWeekStart\":\"Sunday\",\"startTime\":\"08:00\",\"endTime\":\"18:00\"}";
+            const string monday = "{\"schemaVersion\":1,\"workWeekStart\":\"Monday\",\"startTime\":\"08:30\",\"endTime\":\"17:15\"}";
+            WorkSchedule schedule;
+            Equal(true, WorkSchedule.TryParseConfig(sunday, out schedule), "default config accepted");
+            Equal(DayOfWeek.Sunday, schedule.WorkWeekStart, "Sunday start");
+            Equal(true, WorkSchedule.TryParseConfig(monday, out schedule), "Monday config accepted");
+            Equal(DayOfWeek.Monday, schedule.WorkWeekStart, "Monday start");
+            Equal(new TimeSpan(8, 30, 0), schedule.StartTime, "start time");
+            Equal(new TimeSpan(17, 15, 0), schedule.EndTime, "end time");
+            string[] invalid = {
+                null, "", "{}", "garbage", sunday.Replace("Sunday", "Tuesday"),
+                sunday.Replace("08:00", "8:00"), sunday.Replace("08:00", "24:00"),
+                sunday.Replace("18:00", "08:00"), sunday.Replace("18:00", "07:00"),
+                sunday.Replace("1,", "2,"), sunday.Replace("1,", "\"1\","),
+                sunday.Replace("\"endTime\"", "\"otherTime\""),
+                sunday.Substring(0, sunday.Length - 1) + ",\"extra\":1}"
+            };
+            foreach (string value in invalid)
+                Equal(false, WorkSchedule.TryParseConfig(value, out schedule), "reject invalid config: " + value);
+            bool thrown = false;
+            try { new WorkSchedule(DayOfWeek.Tuesday, TimeSpan.FromHours(9), TimeSpan.FromHours(18)); }
+            catch (ArgumentOutOfRangeException) { thrown = true; }
+            Equal(true, thrown, "reject Tuesday start");
         }
 
         private static void ExecutableMatching()

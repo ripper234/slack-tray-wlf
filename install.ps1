@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$KeepSettings)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ $installDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationDat
 $executable = Join-Path $installDirectory 'SlackTrayHours.exe'
 $taskName = "SlackTrayHours-$sid"
 $taskSource = 'SlackTrayHours.v1'
-$managedFiles = @('installation.json', 'config.json', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'SlackTrayHours.exe')
+$managedFiles = @('installation.json', 'config.json', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'Update.cmd', 'update.ps1', 'VERSION', 'SlackTrayHours.exe')
 $mutex = $null
 $lockHeld = $false
 $stage = $null
@@ -118,22 +118,34 @@ try {
             throw "The folder $installDirectory already exists without an installation marker. Move it aside before installing; its contents were not changed."
         }
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        if ($manifest.appId -ne $taskSource -or $manifest.userSid -ne $sid -or $manifest.taskName -ne $taskName -or
+        if ($manifest.appId -ne $taskSource -or $manifest.schemaVersion -ne 1 -or $manifest.userSid -ne $sid -or $manifest.taskName -ne $taskName -or
             -not [string]::Equals($manifest.installPath, $installDirectory, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'The existing installation marker does not match this Windows account and folder. No files were changed.'
         }
         $hadPreviousInstallation = $true
     }
 
-    $currentSchedule = Get-InstalledSchedule (Join-Path $installDirectory 'config.json')
-    Write-Host 'Slack Tray Hours: choose your five-day work week in your Windows local time.'
-    Write-Host 'Press Enter to keep the value in brackets.'
-    $workWeekStart = Read-WeekStart $currentSchedule.workWeekStart
-    while ($true) {
-        $startTime = Read-WorkTime 'Start time' $currentSchedule.startTime
-        $endTime = Read-WorkTime 'End time' $currentSchedule.endTime
-        if ((Convert-TimeToMinutes $startTime) -lt (Convert-TimeToMinutes $endTime)) { break }
-        Write-Host 'End time must be later than start time on the same day. Please enter both times again.' -ForegroundColor Yellow
+    $configPath = Join-Path $installDirectory 'config.json'
+    if ($KeepSettings -and (-not $hadPreviousInstallation -or -not (Test-Path -LiteralPath $configPath -PathType Leaf))) {
+        throw 'An update requires an existing installation with a valid config.json. Run Install.cmd to choose your schedule.'
+    }
+    $currentSchedule = Get-InstalledSchedule $configPath
+    if ($KeepSettings) {
+        Write-Host 'Keeping the existing five-day work schedule.'
+        $workWeekStart = $currentSchedule.workWeekStart
+        $startTime = $currentSchedule.startTime
+        $endTime = $currentSchedule.endTime
+    }
+    else {
+        Write-Host 'Slack Tray Hours: choose your five-day work week in your Windows local time.'
+        Write-Host 'Press Enter to keep the value in brackets.'
+        $workWeekStart = Read-WeekStart $currentSchedule.workWeekStart
+        while ($true) {
+            $startTime = Read-WorkTime 'Start time' $currentSchedule.startTime
+            $endTime = Read-WorkTime 'End time' $currentSchedule.endTime
+            if ((Convert-TimeToMinutes $startTime) -lt (Convert-TimeToMinutes $endTime)) { break }
+            Write-Host 'End time must be later than start time on the same day. Please enter both times again.' -ForegroundColor Yellow
+        }
     }
     $workWeekEnd = if ($workWeekStart -eq 'Sunday') { 'Thursday' } else { 'Friday' }
 
@@ -149,8 +161,12 @@ try {
 
     $stage = Join-Path ([IO.Path]::GetTempPath()) ('SlackTrayHours-install-' + [Guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $stage
+    $versionPath = Join-Path $PSScriptRoot 'VERSION'
+    if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf)) { throw 'The downloaded project is missing VERSION. Download a complete project ZIP and retry.' }
+    $version = ([IO.File]::ReadAllText($versionPath, (New-Object Text.UTF8Encoding($false, $true)))).Trim()
+    if ($version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'VERSION must contain a semantic version such as 0.3.0.' }
     & (Join-Path $PSScriptRoot 'Build.ps1') -OutputPath (Join-Path $stage 'SlackTrayHours.exe')
-    foreach ($file in @('uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd')) {
+    foreach ($file in @('uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'Update.cmd', 'update.ps1', 'VERSION')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $stage $file)
     }
     [ordered]@{ appId = $taskSource; schemaVersion = 1; userSid = $sid; taskName = $taskName; installPath = $installDirectory } |
@@ -229,6 +245,7 @@ try {
     Write-Host "Installed and running. Slack is visible $workWeekStart-$workWeekEnd, $startTime to $endTime, in your Windows local time; hidden at all other times."
     Write-Host 'Starts again when you sign in. The task checks every five minutes that the background helper is still running.'
     Write-Host "Status:    $installDirectory\Status.cmd"
+    Write-Host "Update:    $installDirectory\Update.cmd"
     Write-Host "Uninstall: $installDirectory\Uninstall.cmd"
 }
 catch {

@@ -19,7 +19,7 @@ try {
     $manifestPath = Join-Path $installDirectory 'installation.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "No matching installation marker was found at $manifestPath. No tasks, files, or tray preferences were changed." }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.appId -ne $taskSource -or $manifest.userSid -ne $sid -or $manifest.taskName -ne $taskName -or
+    if ($manifest.appId -ne $taskSource -or $manifest.schemaVersion -ne 1 -or $manifest.userSid -ne $sid -or $manifest.taskName -ne $taskName -or
         -not [string]::Equals($manifest.installPath, $installDirectory, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The installation marker does not match this Windows account and folder. No changes were made.'
     }
@@ -52,7 +52,7 @@ try {
     }
     # Only remove the task and program after all original preferences are restored.
     if ($null -ne $task) { $taskFolder.DeleteTask($taskName, 0) }
-    foreach ($file in @('SlackTrayHours.exe', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'installation.json', 'config.json', 'runtime.log', 'runtime.log.1', 'status.txt')) {
+    foreach ($file in @('SlackTrayHours.exe', 'uninstall.ps1', 'Uninstall.cmd', 'status.ps1', 'Status.cmd', 'Update.cmd', 'update.ps1', 'VERSION', 'installation.json', 'config.json', 'runtime.log', 'runtime.log.1', 'status.txt')) {
         $path = Join-Path $installDirectory $file
         if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
     }

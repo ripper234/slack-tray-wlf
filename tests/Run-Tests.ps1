@@ -23,6 +23,17 @@ foreach ($script in $scripts) {
 }
 Write-Host ('Parsed {0} PowerShell scripts.' -f $scripts.Count)
 
+# The updater compares VERSION; a mismatch with the compiled app would cause
+# the next update check to report the wrong installed version.
+$releaseVersion = ([IO.File]::ReadAllText((Join-Path $projectRoot 'VERSION'))).Trim()
+$sourceText = [IO.File]::ReadAllText((Join-Path $projectRoot 'src\SlackTrayHours.cs'))
+$declaredVersion = [regex]::Matches($sourceText, 'public const string Version = "([0-9]+\.[0-9]+\.[0-9]+)"')
+if ($releaseVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or
+    $declaredVersion.Count -ne 1 -or $declaredVersion[0].Groups[1].Value -cne $releaseVersion) {
+    throw 'VERSION must match the compiled Slack Tray Hours version.'
+}
+Write-Host "Version metadata matches runtime: $releaseVersion"
+
 $compilerCandidates = @(
     (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
     (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')

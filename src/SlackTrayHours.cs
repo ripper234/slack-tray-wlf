@@ -1,4 +1,4 @@
-// Slack Tray Hours 0.2.0. Released under the Unlicense. Compatible with C# 5 / .NET Framework 4.
+// Slack Tray Hours 0.3.0. Released under the Unlicense. Compatible with C# 5 / .NET Framework 4.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -411,7 +411,7 @@ namespace SlackTrayHours
 
     public static class Program
     {
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
         private const string IconsPath = @"Control Panel\NotifyIconSettings";
         private const string BackupPath = @"Software\SlackTrayHours\Backup";
         private static string lastLogState;

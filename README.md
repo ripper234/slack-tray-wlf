@@ -10,14 +10,20 @@ The same hours apply to all five workdays. Enter 24-hour times such as `08:00` a
 
 ## Install
 
-1. Download this project's ZIP and choose **Extract All**.
+1. [Download this project's ZIP](https://github.com/ripper234/slack-tray-wlf/archive/refs/heads/main.zip) and choose **Extract All**.
 2. Open the extracted folder and double-click **`Install.cmd`** as your normal Windows user.
 3. Answer the three short questions. Press **Enter** to accept each suggested value.
 4. Wait for the installation success message. Done. No reboot or administrator password is needed.
 
-The installer builds a small executable using the C# compiler already included with Windows. No SDK, extra runtime, package manager, Slack credentials, or internet connection is needed during installation or operation. You can delete the extracted download after installation.
+The installer builds a small executable using the C# compiler already included with Windows. No SDK, extra runtime, package manager, Slack credentials, or internet connection is needed after you have downloaded the ZIP for manual installation or normal operation. The optional update command connects to GitHub when you run it. You can delete the extracted download after installation.
 
 Windows may flag an unsigned downloaded script. Inspect the source before running it. If your organization blocks scripts, local compilation, or Task Scheduler, installation will report an error; it will not change organization policy or request elevation.
+
+## Update
+
+After installing v0.3, run **`%LOCALAPPDATA%\SlackTrayHours\Update.cmd`** whenever you want to check for a newer version. You can double-click **`Update.cmd`** in the original download instead. It checks the version on this project's GitHub `main` branch and leaves your installation alone if it is current. If a newer version exists, it displays the current and target versions plus the exact source commit, then asks you to type **`UPDATE`** before downloading the source archive or changing the installation. Closing the window before confirmation, or entering anything else, cancels. After confirmation, keep the update window open until it reports the outcome. An internet connection is needed for this check and download; there are no background update checks.
+
+After confirmation, the updater downloads the source archive pinned to that commit and invokes the installer with your existing schedule. The installer stops the old background process, replaces the program, and starts the scheduled task again. It retains your schedule and the original tray-setting backups. If installation fails, its rollback attempts to restore the previous files and task; follow any recovery path shown in the error. The first upgrade from v0.2 needs a manual ZIP download and run of the v0.3 installer, which puts the update command in place.
 
 ## What happens
 
@@ -35,7 +41,7 @@ Double-click **`Status.cmd`** in the download, or run `%LOCALAPPDATA%\SlackTrayH
 
 Double-click **`Uninstall.cmd`**, or run `%LOCALAPPDATA%\SlackTrayHours\Uninstall.cmd`. The uninstaller stops automatic enforcement and restores each icon's original setting where it can safely identify the same entry. It preserves a later value that differs from the last value written by this app. If restoration fails, it keeps the recovery files and reports the error.
 
-Run `Install.cmd` again to change those three settings or install a newer version. It offers your current settings as the defaults. Existing original-setting backups are retained.
+Run `Install.cmd` again to change those three settings or install a version you downloaded manually. It offers your current settings as the defaults. Existing original-setting backups are retained.
 
 ## How it works
 
@@ -43,7 +49,7 @@ The app checks `HKCU\Control Panel\NotifyIconSettings` every five seconds. It ma
 
 Before its first change to an entry, it saves the original value and executable identity under `HKCU\Software\SlackTrayHours\Backup`. The executable, your three schedule settings, supporting scripts, and bounded local logs live in `%LOCALAPPDATA%\SlackTrayHours`. The scheduled task is named `SlackTrayHours-<your Windows SID>` and runs only with your existing interactive user token, at limited privilege. No password is stored.
 
-There is no network code, telemetry, auto-update, Slack API integration, Explorer restart, process injection, or screenshot monitoring. The installer uses a process-scoped PowerShell execution-policy flag; it does not permanently change PowerShell policy.
+The background app has no network code, telemetry, automatic update checks, Slack API integration, Explorer restart, process injection, or screenshot monitoring. Only a user-initiated update command connects to GitHub. The installer uses a process-scoped PowerShell execution-policy flag; it does not permanently change PowerShell policy.
 
 ## Compatibility and limitations
 

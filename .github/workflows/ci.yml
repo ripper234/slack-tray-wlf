@@ -1,0 +1,36 @@
+name: Windows build and tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Parse scripts and test policy and isolated registry fixtures
+        run: .\tests\Run-Tests.ps1
+      - name: Build Windows executable
+        run: .\Build.ps1
+      - name: Package source for installation
+        run: |
+          git archive --format=zip --prefix=slack-tray-hours/ --output=slack-tray-hours-source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Source packaging failed.' }
+      - name: Upload source package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: slack-tray-hours-source
+          path: slack-tray-hours-source.zip
+          if-no-files-found: error

@@ -1,0 +1,8 @@
+/build/
+/dist/
+*.exe
+*.pdb
+*.log
+*.zip
+.DS_Store
+/artifacts/
